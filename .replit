@@ -1,14 +1,13 @@
-run = "python3 main.py"
+run = "python main.py"
 language = "python3"
+modules = ["python-3.12", "nix"]
 
 [nix]
-channel = "stable-22_11"
+channel = "stable-25_05"
+packages = ["geckodriver"]
 
 [deployment]
-run = ["python3", "main.py"]
-
-[interpreter]
-command = ["python3", "-u", "main.py"]
+run = ["sh", "-c", "python main.py"]
 
 [env]
 REPL_SLUG = "electricity-meter-bot"
