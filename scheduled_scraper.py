@@ -24,25 +24,30 @@ class ScheduledMeterScraper:
         
     def run_daily_scraping(self):
         try:
-            logging.info("Starting daily meter scraping...")
+            logging.info("Starting multi-meter scraping for all 5 meters...")
             
-            # Run the scraper
-            success = self.scraper.scrape(self.website_url)
+            # Run the scraper for all meters
+            low_balance_warnings, all_data = self.scraper.scrape_all_meters(self.website_url)
             
-            if success:
-                logging.info("Scraping completed successfully")
+            if all_data:
+                logging.info(f"Scraping completed successfully for {len(all_data)} meters")
                 
-                # Send data to Telegram
-                telegram_success = self.telegram_bot.send_meter_data()
-                
-                if telegram_success:
-                    logging.info("Data sent to Telegram successfully")
+                # Only send message if there are low balance warnings
+                if low_balance_warnings:
+                    logging.info(f"Found {len(low_balance_warnings)} meters with low balance")
+                    telegram_success = self.telegram_bot.send_low_balance_warnings(low_balance_warnings)
+                    
+                    if telegram_success:
+                        logging.info("Low balance warnings sent to Telegram successfully")
+                    else:
+                        logging.error("Failed to send warnings to Telegram")
                 else:
-                    logging.error("Failed to send data to Telegram")
+                    logging.info("All meters have sufficient balance (>= 100 BDT). No notifications sent.")
+                
             else:
-                logging.error("Scraping failed")
+                logging.error("Scraping failed for all meters")
                 # Send error notification to Telegram
-                error_msg = f"❌ Electricity meter scraping failed at {datetime.now().strftime('%d %B %Y, %I:%M %p')}"
+                error_msg = f"❌ Electricity meter scraping failed for all meters at {datetime.now().strftime('%d %B %Y, %I:%M %p')}"
                 self.telegram_bot.send_message(error_msg)
                 
         except Exception as e:

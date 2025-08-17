@@ -14,6 +14,9 @@ class ElectricityMeterScraper:
         self.account_number = os.getenv('ACCOUNT_NUMBER', '37226784')
         self.driver = None
         
+        # List of all meter numbers
+        self.all_meters = ['37226784', '37202772', '37195501', '37226785', '37202771']
+        
     def setup_driver(self):
         options = webdriver.ChromeOptions()
         options.add_argument("--no-sandbox")
@@ -197,6 +200,33 @@ class ElectricityMeterScraper:
         except Exception as e:
             print(f"Logged-in page debug failed: {str(e)}")
 
+    def extract_numeric_balance(self, balance_text):
+        """Extract numeric balance value from balance text"""
+        try:
+            if not balance_text or balance_text in ['Not found', 'Error']:
+                return None
+            
+            # Extract numbers from the balance text
+            import re
+            numbers = re.findall(r'[\d,]+\.?\d*', balance_text)
+            
+            for number in numbers:
+                try:
+                    # Clean and convert to float
+                    clean_number = number.replace(',', '')
+                    balance_value = float(clean_number)
+                    
+                    # Only consider reasonable balance values (between 0 and 10000)
+                    if 0 <= balance_value <= 10000:
+                        return balance_value
+                except:
+                    continue
+            
+            return None
+        except Exception as e:
+            print(f"Error extracting numeric balance: {str(e)}")
+            return None
+
     def extract_data(self):
         try:
             print("Waiting for page to load after login...")
@@ -251,6 +281,9 @@ class ElectricityMeterScraper:
                     else:
                         data["remaining_balance"] = "Not found"
                         print("Remaining balance not found")
+                
+                # Extract numeric balance for comparison
+                data["balance_numeric"] = self.extract_numeric_balance(data.get("remaining_balance"))
             except Exception as e:
                 data["remaining_balance"] = "Error"
                 print(f"Error extracting balance: {str(e)}")
@@ -322,6 +355,75 @@ class ElectricityMeterScraper:
                 "last_recharge_date": "Error",
                 "error_message": str(e)
             }
+    
+    def scrape_account(self, account_number, website_url):
+        """Scrape data for a specific account number"""
+        try:
+            print(f"\n=== Scraping Account: {account_number} ===")
+            
+            # Set the account number for this scrape
+            original_account = self.account_number
+            self.account_number = account_number
+            
+            if not self.setup_driver():
+                self.account_number = original_account
+                return None
+            
+            if not self.login(website_url):
+                self.account_number = original_account
+                return None
+            
+            time.sleep(2)
+            data = self.extract_data()
+            
+            # Restore original account number
+            self.account_number = original_account
+            
+            if self.driver:
+                self.driver.quit()
+                self.driver = None
+            
+            return data
+                
+        except Exception as e:
+            print(f"Scraping failed for account {account_number}: {str(e)}")
+            self.account_number = original_account
+            if self.driver:
+                self.driver.quit()
+                self.driver = None
+            return None
+    
+    def scrape_all_meters(self, website_url):
+        """Scrape all meters and return list of low balance warnings"""
+        low_balance_warnings = []
+        all_data = []
+        
+        for account_number in self.all_meters:
+            data = self.scrape_account(account_number, website_url)
+            
+            if data and data.get('status') == 'success':
+                all_data.append(data)
+                
+                # Check if balance is low (less than 100 BDT)
+                balance_numeric = data.get('balance_numeric')
+                if balance_numeric is not None and balance_numeric < 100:
+                    warning = {
+                        'account_number': account_number,
+                        'balance_text': data.get('remaining_balance', 'N/A'),
+                        'balance_numeric': balance_numeric,
+                        'timestamp': data.get('timestamp')
+                    }
+                    low_balance_warnings.append(warning)
+                    print(f"⚠️ LOW BALANCE WARNING: Account {account_number} has {balance_numeric} BDT")
+                else:
+                    print(f"✅ Account {account_number} has sufficient balance: {balance_numeric} BDT")
+            else:
+                print(f"❌ Failed to scrape account {account_number}")
+            
+            # Small delay between accounts
+            time.sleep(2)
+        
+        return low_balance_warnings, all_data
     
     def save_data(self, data):
         try:
