@@ -17,6 +17,15 @@ class ElectricityMeterScraper:
         # List of all meter numbers
         self.all_meters = ['37226784', '37202772', '37195501', '37226785', '37202771']
         
+        # Meter nicknames mapping
+        self.meter_nicknames = {
+            '37226784': 'Ayon',
+            '37202772': 'Arif', 
+            '37195501': 'Payel',
+            '37226785': 'Piyal',
+            '37202771': 'Solo'
+        }
+        
     def setup_driver(self):
         options = webdriver.ChromeOptions()
         options.add_argument("--no-sandbox")
@@ -227,6 +236,10 @@ class ElectricityMeterScraper:
             print(f"Error extracting numeric balance: {str(e)}")
             return None
 
+    def get_meter_nickname(self, account_number):
+        """Get the nickname for a meter account number"""
+        return self.meter_nicknames.get(account_number, 'Unknown')
+
     def extract_data(self):
         try:
             print("Waiting for page to load after login...")
@@ -238,6 +251,7 @@ class ElectricityMeterScraper:
             data = {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "account_number": self.account_number,
+                "nickname": self.get_meter_nickname(self.account_number),
                 "status": "success"
             }
             
@@ -313,28 +327,60 @@ class ElectricityMeterScraper:
                 data["reading_time"] = "Error"
                 print(f"Error extracting reading time: {str(e)}")
             
-            # Extract last recharge amount (specifically look for 3,000.00 BDT)
+            # Extract last recharge amount (look for any recharge amount)
             try:
+                recharge_found = False
                 for text in all_texts:
-                    if "3,000" in text and "BDT" in text:
+                    if ("recharge" in text.lower() or "last recharge" in text.lower()) and "BDT" in text:
                         data["last_recharge_amount"] = text
                         print(f"Found recharge amount: {text}")
+                        recharge_found = True
                         break
-                else:
+                
+                if not recharge_found:
+                    # Look for any BDT amount that might be a recharge (avoid balance amounts)
+                    for text in all_texts:
+                        if "BDT" in text and any(char.isdigit() for char in text):
+                            # Skip if it's clearly a balance (contains "balance" or "remaining")
+                            if "balance" not in text.lower() and "remaining" not in text.lower():
+                                # Look for larger amounts that are likely recharges
+                                numeric_amount = self.extract_numeric_balance(text)
+                                if numeric_amount and numeric_amount >= 500:  # Recharges are usually >= 500 BDT
+                                    data["last_recharge_amount"] = text
+                                    print(f"Found potential recharge amount: {text}")
+                                    recharge_found = True
+                                    break
+                
+                if not recharge_found:
                     data["last_recharge_amount"] = "Not found"
                     print("Recharge amount not found")
             except Exception as e:
                 data["last_recharge_amount"] = "Error"
                 print(f"Error extracting recharge amount: {str(e)}")
             
-            # Extract last recharge date (specifically look for 10 Jul 2025)
+            # Extract last recharge date (look for any recharge date)
             try:
+                recharge_date_found = False
                 for text in all_texts:
-                    if "10 Jul" in text and "2025" in text:
+                    if ("recharge" in text.lower() or "last recharge" in text.lower()) and any(month in text for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']):
                         data["last_recharge_date"] = text
                         print(f"Found recharge date: {text}")
+                        recharge_date_found = True
                         break
-                else:
+                
+                if not recharge_date_found:
+                    # Look for any recent date that's not the reading date
+                    current_date = datetime.now().strftime('%d %b')  # e.g., "17 Aug"
+                    for text in all_texts:
+                        if any(month in text for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']) and ":" in text:
+                            # Skip if it's the balance reading time (usually has "00:00")
+                            if "00:00" not in text:
+                                data["last_recharge_date"] = text
+                                print(f"Found potential recharge date: {text}")
+                                recharge_date_found = True
+                                break
+                
+                if not recharge_date_found:
                     data["last_recharge_date"] = "Not found"
                     print("Recharge date not found")
             except Exception as e:
@@ -355,6 +401,86 @@ class ElectricityMeterScraper:
                 "last_recharge_date": "Error",
                 "error_message": str(e)
             }
+
+    def parse_datetime_from_text(self, text):
+        """Parse datetime from text like '17 Aug 2025 15:16' or 'Recharge time: 17 Aug 2025 15:16'"""
+        try:
+            import re
+            from datetime import datetime
+            
+            # Extract date and time pattern (e.g., "17 Aug 2025 15:16")
+            pattern = r'(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{1,2}):(\d{2})'
+            match = re.search(pattern, text)
+            
+            if match:
+                day, month_str, year, hour, minute = match.groups()
+                
+                # Convert month name to number
+                month_map = {
+                    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                }
+                month = month_map.get(month_str)
+                
+                if month:
+                    return datetime(int(year), month, int(day), int(hour), int(minute))
+            
+            return None
+        except Exception as e:
+            print(f"Error parsing datetime from '{text}': {str(e)}")
+            return None
+
+    def is_same_day_recharge_after_reading(self, balance_reading_text, recharge_date_text):
+        """Check if recharge happened on same day as balance reading but after reading time"""
+        try:
+            balance_time = self.parse_datetime_from_text(balance_reading_text)
+            recharge_time = self.parse_datetime_from_text(recharge_date_text)
+            
+            if balance_time and recharge_time:
+                # Same day check
+                same_day = (balance_time.date() == recharge_time.date())
+                # Recharge after reading check
+                recharge_after = recharge_time > balance_time
+                
+                print(f"Balance time: {balance_time}, Recharge time: {recharge_time}")
+                print(f"Same day: {same_day}, Recharge after reading: {recharge_after}")
+                
+                return same_day and recharge_after
+            
+            return False
+        except Exception as e:
+            print(f"Error checking same-day recharge: {str(e)}")
+            return False
+
+    def apply_smart_recharge_logic(self, data):
+        """Apply smart logic to determine if meter should be considered recharged"""
+        try:
+            balance_numeric = data.get('balance_numeric')
+            balance_reading = data.get('reading_time', '')
+            recharge_date = data.get('last_recharge_date', '')
+            recharge_amount_text = data.get('last_recharge_amount', '')
+            
+            # Extract recharge amount
+            recharge_amount = self.extract_numeric_balance(recharge_amount_text)
+            
+            data['recharge_amount_numeric'] = recharge_amount
+            data['recently_recharged'] = False
+            
+            # Check if there's a same-day recharge after balance reading
+            if (balance_numeric is not None and balance_numeric < 100 and 
+                recharge_amount and recharge_amount >= 500):
+                
+                if self.is_same_day_recharge_after_reading(balance_reading, recharge_date):
+                    data['recently_recharged'] = True
+                    print(f"RECHARGED: Meter {data['account_number']} ({data['nickname']}) recently recharged: {recharge_amount} BDT")
+                    return data
+            
+            print(f"BALANCE CHECK: Meter {data['account_number']} ({data['nickname']}) balance: {balance_numeric} BDT")
+            return data
+            
+        except Exception as e:
+            print(f"Error applying smart recharge logic: {str(e)}")
+            return data
     
     def scrape_account(self, account_number, website_url):
         """Scrape data for a specific account number"""
@@ -376,6 +502,10 @@ class ElectricityMeterScraper:
             time.sleep(2)
             data = self.extract_data()
             
+            # Apply smart recharge logic
+            if data:
+                data = self.apply_smart_recharge_logic(data)
+            
             # Restore original account number
             self.account_number = original_account
             
@@ -394,8 +524,9 @@ class ElectricityMeterScraper:
             return None
     
     def scrape_all_meters(self, website_url):
-        """Scrape all meters and return list of low balance warnings"""
+        """Scrape all meters and return list of low balance warnings and recently recharged meters"""
         low_balance_warnings = []
+        recently_recharged = []
         all_data = []
         
         for account_number in self.all_meters:
@@ -404,26 +535,42 @@ class ElectricityMeterScraper:
             if data and data.get('status') == 'success':
                 all_data.append(data)
                 
-                # Check if balance is low (less than 100 BDT)
                 balance_numeric = data.get('balance_numeric')
-                if balance_numeric is not None and balance_numeric < 100:
+                nickname = data.get('nickname', 'Unknown')
+                
+                # Check if recently recharged (same day after balance reading)
+                if data.get('recently_recharged', False):
+                    recharge_info = {
+                        'account_number': account_number,
+                        'nickname': nickname,
+                        'balance_numeric': balance_numeric,
+                        'recharge_amount': data.get('recharge_amount_numeric'),
+                        'recharge_date': data.get('last_recharge_date', 'N/A'),
+                        'timestamp': data.get('timestamp')
+                    }
+                    recently_recharged.append(recharge_info)
+                    print(f"RECENTLY RECHARGED: Account {account_number} ({nickname}) - {data.get('recharge_amount_numeric')} BDT")
+                
+                # Check if balance is low (less than 100 BDT) AND not recently recharged
+                elif balance_numeric is not None and balance_numeric < 100:
                     warning = {
                         'account_number': account_number,
+                        'nickname': nickname,
                         'balance_text': data.get('remaining_balance', 'N/A'),
                         'balance_numeric': balance_numeric,
                         'timestamp': data.get('timestamp')
                     }
                     low_balance_warnings.append(warning)
-                    print(f"⚠️ LOW BALANCE WARNING: Account {account_number} has {balance_numeric} BDT")
+                    print(f"LOW BALANCE WARNING: Account {account_number} ({nickname}) has {balance_numeric} BDT")
                 else:
-                    print(f"✅ Account {account_number} has sufficient balance: {balance_numeric} BDT")
+                    print(f"SUFFICIENT BALANCE: Account {account_number} ({nickname}) has {balance_numeric} BDT")
             else:
-                print(f"❌ Failed to scrape account {account_number}")
+                print(f"FAILED: Failed to scrape account {account_number}")
             
             # Small delay between accounts
             time.sleep(2)
         
-        return low_balance_warnings, all_data
+        return low_balance_warnings, recently_recharged, all_data
     
     def save_data(self, data):
         try:

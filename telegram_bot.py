@@ -87,37 +87,62 @@ class TelegramBot:
             error_msg = f"❌ Error reading meter data: {str(e)}"
             return self.send_message(error_msg)
     
-    def send_low_balance_warnings(self, warnings):
-        """Send low balance warnings for multiple meters"""
+    def send_meter_status_update(self, warnings, recently_recharged):
+        """Send comprehensive meter status update including warnings and recent recharges"""
         try:
-            if not warnings:
-                return True  # No warnings to send
+            if not warnings and not recently_recharged:
+                return True  # No updates to send
             
-            # Create warning message
-            message = f"🚨 <b>LOW BALANCE WARNING</b>\n"
-            message += f"📅 <b>Date:</b> {datetime.now().strftime('%d %B %Y, %I:%M %p')}\n\n"
+            # Create status message
+            timestamp = datetime.now().strftime('%d %B %Y, %I:%M %p')
             
-            # Add each warning
-            for warning in warnings:
-                account = warning['account_number']
-                balance = warning['balance_numeric']
-                message += f"❌ <b>Meter {account}:</b> {balance:.2f} BDT\n"
+            if warnings:
+                message = f"🚨 <b>LOW BALANCE WARNING</b>\n"
+                message += f"📅 <b>Date:</b> {timestamp}\n\n"
+                
+                # Add each warning with nickname
+                for warning in warnings:
+                    account = warning['account_number']
+                    nickname = warning['nickname']
+                    balance = warning['balance_numeric']
+                    message += f"❌ <b>Meter {account} ({nickname}):</b> {balance:.2f} BDT\n"
+            else:
+                message = f"📋 <b>METER STATUS UPDATE</b>\n"
+                message += f"📅 <b>Date:</b> {timestamp}\n\n"
+            
+            # Add recently recharged section
+            if recently_recharged:
+                message += f"\n📋 <b>Recent Activity:</b>\n"
+                for recharge in recently_recharged:
+                    account = recharge['account_number']
+                    nickname = recharge['nickname']
+                    amount = recharge['recharge_amount']
+                    message += f"🔄 <b>Meter {account} ({nickname}):</b> Recently recharged ({amount:.2f} BDT)\n"
             
             # Add summary
             total_meters = 5
-            low_balance_count = len(warnings)
-            sufficient_count = total_meters - low_balance_count
+            warning_count = len(warnings)
+            recharged_count = len(recently_recharged)
+            sufficient_count = total_meters - warning_count - recharged_count
             
             if sufficient_count > 0:
-                message += f"\n✅ <b>{sufficient_count} other meter(s) have sufficient balance</b>\n"
+                message += f"\n✅ <b>{sufficient_count} other meter(s) have sufficient balance</b>"
             
-            message += f"🔄 <b>Updated:</b> {warnings[0]['timestamp']}"
+            # Add timestamp
+            if warnings:
+                message += f"\n🔄 <b>Updated:</b> {warnings[0]['timestamp']}"
+            elif recently_recharged:
+                message += f"\n🔄 <b>Updated:</b> {recently_recharged[0]['timestamp']}"
             
             return self.send_message(message)
             
         except Exception as e:
-            error_msg = f"❌ Error sending low balance warnings: {str(e)}"
+            error_msg = f"❌ Error sending meter status update: {str(e)}"
             return self.send_message(error_msg)
+
+    def send_low_balance_warnings(self, warnings):
+        """Legacy method - redirects to new comprehensive method"""
+        return self.send_meter_status_update(warnings, [])
 
 if __name__ == "__main__":
     bot = TelegramBot()

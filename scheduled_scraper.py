@@ -27,20 +27,20 @@ class ScheduledMeterScraper:
             logging.info("Starting multi-meter scraping for all 5 meters...")
             
             # Run the scraper for all meters
-            low_balance_warnings, all_data = self.scraper.scrape_all_meters(self.website_url)
+            low_balance_warnings, recently_recharged, all_data = self.scraper.scrape_all_meters(self.website_url)
             
             if all_data:
                 logging.info(f"Scraping completed successfully for {len(all_data)} meters")
                 
-                # Only send message if there are low balance warnings
-                if low_balance_warnings:
-                    logging.info(f"Found {len(low_balance_warnings)} meters with low balance")
-                    telegram_success = self.telegram_bot.send_low_balance_warnings(low_balance_warnings)
+                # Send message if there are low balance warnings OR recently recharged meters
+                if low_balance_warnings or recently_recharged:
+                    logging.info(f"Found {len(low_balance_warnings)} meters with low balance and {len(recently_recharged)} recently recharged")
+                    telegram_success = self.telegram_bot.send_meter_status_update(low_balance_warnings, recently_recharged)
                     
                     if telegram_success:
-                        logging.info("Low balance warnings sent to Telegram successfully")
+                        logging.info("Meter status update sent to Telegram successfully")
                     else:
-                        logging.error("Failed to send warnings to Telegram")
+                        logging.error("Failed to send status update to Telegram")
                 else:
                     logging.info("All meters have sufficient balance (>= 100 BDT). No notifications sent.")
                 
