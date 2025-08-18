@@ -22,5 +22,7 @@ if __name__ == "__main__":
         print("Running test scraping for all meters...")
         scheduler.run_daily_scraping()
     else:
-        print("Starting daily scheduler (8 AM) for all meters...")
+        schedule_times = os.getenv('SCHEDULE_TIMES', '08:00')
+        print(f"Starting daily scheduler for times: {schedule_times}")
+        print("Smart recharge detection enabled - no false warnings!")
         scheduler.start_scheduler()

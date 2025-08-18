@@ -37,6 +37,12 @@ class ElectricityMeterScraper:
         options.add_argument("--disable-extensions")
         options.add_argument("--disable-plugins")
         options.add_argument("--disable-images")
+        # Add SSL bypass options for websites with certificate issues
+        options.add_argument("--ignore-ssl-errors=yes")
+        options.add_argument("--ignore-certificate-errors")
+        options.add_argument("--allow-running-insecure-content")
+        options.add_argument("--disable-web-security")
+        options.add_argument("--ignore-ssl-errors-spki-list")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         

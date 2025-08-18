@@ -6,10 +6,13 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return """
+    schedule_times = os.environ.get('SCHEDULE_TIMES', '08:00')
+    return f"""
     <h1>🔋 Electricity Meter Bot</h1>
     <p>Status: Running</p>
-    <p>Schedule: Daily at 8:00 AM</p>
+    <p>Schedule: Daily at {schedule_times}</p>
+    <p>Meters: Ayon, Arif, Payel, Piyal, Solo</p>
+    <p>Smart recharge detection enabled</p>
     <p>Next run will be logged in console</p>
     """
 

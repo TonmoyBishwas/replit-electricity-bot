@@ -2,12 +2,29 @@ import requests
 import json
 import os
 from datetime import datetime
+import pytz
 
 class TelegramBot:
     def __init__(self, bot_token=None, chat_id=None):
         self.bot_token = bot_token or os.getenv('TELEGRAM_BOT_TOKEN')
         self.chat_id = chat_id or os.getenv('TELEGRAM_CHAT_ID')
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
+        
+        # Set up Bangladesh timezone
+        self.bd_timezone = pytz.timezone('Asia/Dhaka')
+    
+    def get_bangladesh_time(self):
+        """Get current time in Bangladesh timezone"""
+        try:
+            utc_now = datetime.utcnow()
+            utc_tz = pytz.UTC
+            utc_aware = utc_tz.localize(utc_now)
+            bd_time = utc_aware.astimezone(self.bd_timezone)
+            return bd_time
+        except Exception as e:
+            print(f"Error getting Bangladesh time: {e}")
+            # Fallback to system time
+            return datetime.now()
     
     def send_message(self, message):
         try:
@@ -93,8 +110,10 @@ class TelegramBot:
             if not warnings and not recently_recharged:
                 return True  # No updates to send
             
-            # Create status message
-            timestamp = datetime.now().strftime('%d %B %Y, %I:%M %p')
+            # Create status message with correct Bangladesh time
+            bd_time = self.get_bangladesh_time()
+            timestamp = bd_time.strftime('%d %B %Y, %I:%M %p')
+            print(f"DEBUG: Telegram timestamp - UTC: {datetime.utcnow()}, BD: {bd_time}, Display: {timestamp}")
             
             if warnings:
                 message = f"🚨 <b>LOW BALANCE WARNING</b>\n"
